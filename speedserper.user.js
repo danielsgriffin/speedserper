@@ -20,7 +20,7 @@ document.documentElement.style.display = 'none';
 (function () {
     'use strict';
     let debugging = true;
-
+    
     const serpStrategies = {
         'google': {
             searchBarAction: 'https://www.google.com/search',
@@ -32,15 +32,35 @@ document.documentElement.style.display = 'none';
                     selector: '.s75CSd.u60jwe.r2fjmd.AB4Wff'
                 },
             },
-            extractSearchResults: function (result) {
+            findSearchResults: function () {
+                return Array.from(document.querySelectorAll('h3')).map(h3 => h3.closest('a'));
+            },
+            extractSearchResults: function (result, originalBody) {
                 if ($(result).find('div[role="heading"]').text() === 'Related searches') {
                     return { url: null, title: null, snippet: null };
                 }
-                let url = $(result).find('a').attr('href') || '#';
+                if (debugging) {
+                    console.log(result)
+                }
+                let url;
+                if ($(result).is('a')) {
+                    url = $(result).attr('href');
+                } else {
+                    url = $(result).find('a').attr('href') || '#';
+                }
                 let title = $(result).find('h3').text() || 'Title not found';
-                let snippetSelector = $(result).find('div.VwiC3b.yXK7lf.lyLwlc.yDYNvb.W8l4ac.lEBKkf');
-                let snippet = snippetSelector.text() || 'Snippet not found';
-
+                function extractSnippet(result, title, originalBody) {
+                    let snippetSelector = $(result).find('div.VwiC3b.yXK7lf.lyLwlc.yDYNvb.W8l4ac.lEBKkf');
+                    let snippet = snippetSelector.text() || '';
+                    if (!snippet) {
+                        snippet = $(result).parent().parent().parent().parent().next().text();
+                    }                   
+                    if (debugging) {
+                        console.log('Final snippet:', snippet);
+                    }
+                    return snippet;
+                }
+                let snippet = extractSnippet(result, title, originalBody);
                 // Always return an object with url, title, and snippet.
                 return { url, title, snippet };
             }
@@ -53,7 +73,7 @@ document.documentElement.style.display = 'none';
                     selector: '.related-searches__item'
                 },
             },
-            extractSearchResults: function (result) {
+            extractSearchResults: function (result, originalBody) {
                 let title, url, snippet;
                 let layout = $(result).attr('data-layout');
                 if (layout === 'organic') {
@@ -72,7 +92,7 @@ document.documentElement.style.display = 'none';
                     selector: '.df_alsoAskCard',
                 }
             },
-            extractSearchResults: function (result) {
+            extractSearchResults: function (result, originalBody) {
                 let title, url, snippet;
                 let bTitleDiv = $(result).find('div.b_title');
                 if (!bTitleDiv.length) {
@@ -180,13 +200,13 @@ document.documentElement.style.display = 'none';
         }
         return serpHeader;
     }
-
+    
     function cleanURL(url) {
         url = url.split("?")[0];
         return url
     }
 
-    function createSearchResultsDisplay(searchResults, serpType) {
+    function createSearchResultsDisplay(searchResults, serpType, originalBody) {
         const strategy = getStrategy(serpType);
         if (!strategy) return null;
 
@@ -196,13 +216,12 @@ document.documentElement.style.display = 'none';
         let counter = 1; // Initialize counter for numbering
         searchResults.forEach((result) => {
             const strategy = getStrategy(serpType);
-            let { url, title, snippet } = strategy.extractSearchResults(result);
+            let { url, title, snippet } = strategy.extractSearchResults(result, originalBody);
             if (!url || !title || !snippet) {
                 return;
             }
 
             url = cleanURL(url);
-            // Check if the span element exists and its textContent is not 'People also ask'
             if (debugging) {
                 console.log({
                     'Title': title,
@@ -210,61 +229,70 @@ document.documentElement.style.display = 'none';
                     'Snippet': snippet
                 });
             }
+            
             if (snippet === "N/A" || snippet === 'Snippet not found') {
                 snippet = ""
             }
-            let spanElement = result.querySelector('span');
-            if (spanElement && spanElement.textContent !== 'People also ask') {
-                let resultDiv = document.createElement('div'); // Create a div for each result
-                resultDiv.className = "col-md-8 mx-auto"
-                let numberElement = document.createElement('span');
-                numberElement.textContent = counter + ".";
-                numberElement.innerHTML += "&nbsp;";
-                numberElement.className = "h5 m-0 p-0";
-                resultDiv.id = 'result-div-' + counter;
 
-                try {
-                    // Create elements for the URL, title, and snippet
-                    let resultDivInnerLeftMargin = "20px"
-                    let urlElement = document.createElement('a');
-                    urlElement.href = url;
-                    urlElement.textContent = url.split('#:~:text=')[0]; // Strip text starting with `#:~:text=`;
-                    urlElement.style.display = 'block'; // Display the URL on a new line
-                    urlElement.style.marginLeft = resultDivInnerLeftMargin;
-
-                    let titleElement = document.createElement('a');
-                    titleElement.href = url;
-
-                    let titleText = document.createElement('span');
-                    titleText.textContent = title;
-                    titleElement.appendChild(titleText);
-                    titleElement.className = "h5 m-0 p-0";
-                    titleElement.style.color = 'var(--bs-link-color)';
-                    titleElement.style.textDecoration = 'underline';
-                    titleElement.onmouseover = function () {
-                        this.style.color = 'var(--bs-link-hover-color)';
-                    }
-                    titleElement.onmouseout = function () {
-                        this.style.color = 'var(--bs-link-color)';
-                    }
-
-                    let titleLine = document.createElement('div');
-                    titleLine.className = 'd-flex flex-row'; // Change from flex-column to flex-row
-                    titleLine.appendChild(numberElement);
-                    titleLine.appendChild(titleElement);
-                    resultDiv.appendChild(titleLine); // Append title to resultDiv
-                    resultDiv.appendChild(urlElement); // Append URL to resultDiv
-
-                    let snippetElement = document.createElement('p');
-                    snippetElement.textContent = snippet;
-                    snippetElement.style.marginLeft = resultDivInnerLeftMargin;
-
-                    resultDiv.appendChild(snippetElement); // Append snippet to resultDiv
-                    resultsDiv.appendChild(resultDiv); // Append resultDiv to resultsDiv
-                    counter++; // Increment counter
-                } catch (e) {
-                    console.error('Error processing search result:', e);
+            // Check if the span element exists and its textContent is not 'People also ask'
+            try {
+                let spanElement = result.querySelector('span');
+                if (spanElement && spanElement.textContent == 'People also ask') {
+                    return;
                 }
+            } catch (error) {
+                console.log("Span element does not exist, continuing...");
+            }
+            
+            let resultDiv = document.createElement('div'); // Create a div for each result
+            resultDiv.className = "col-md-8 mx-auto"
+            let numberElement = document.createElement('span');
+            numberElement.textContent = counter + ".";
+            numberElement.innerHTML += "&nbsp;";
+            numberElement.className = "h5 m-0 p-0";
+            resultDiv.id = 'result-div-' + counter;
+
+            try {
+                // Create elements for the URL, title, and snippet
+                let resultDivInnerLeftMargin = "20px"
+                let urlElement = document.createElement('a');
+                urlElement.href = url;
+                urlElement.textContent = url.split('#:~:text=')[0]; // Strip text starting with `#:~:text=`;
+                urlElement.style.display = 'block'; // Display the URL on a new line
+                urlElement.style.marginLeft = resultDivInnerLeftMargin;
+
+                let titleElement = document.createElement('a');
+                titleElement.href = url;
+
+                let titleText = document.createElement('span');
+                titleText.textContent = title;
+                titleElement.appendChild(titleText);
+                titleElement.className = "h5 m-0 p-0";
+                titleElement.style.color = 'var(--bs-link-color)';
+                titleElement.style.textDecoration = 'underline';
+                titleElement.onmouseover = function () {
+                    this.style.color = 'var(--bs-link-hover-color)';
+                }
+                titleElement.onmouseout = function () {
+                    this.style.color = 'var(--bs-link-color)';
+                }
+
+                let titleLine = document.createElement('div');
+                titleLine.className = 'd-flex flex-row'; // Change from flex-column to flex-row
+                titleLine.appendChild(numberElement);
+                titleLine.appendChild(titleElement);
+                resultDiv.appendChild(titleLine); // Append title to resultDiv
+                resultDiv.appendChild(urlElement); // Append URL to resultDiv
+
+                let snippetElement = document.createElement('p');
+                snippetElement.textContent = snippet;
+                snippetElement.style.marginLeft = resultDivInnerLeftMargin;
+
+                resultDiv.appendChild(snippetElement); // Append snippet to resultDiv
+                resultsDiv.appendChild(resultDiv); // Append resultDiv to resultsDiv
+                counter++; // Increment counter
+            } catch (e) {
+                console.error('Error processing search result:', e);
             }
         });
         return resultsDiv;
@@ -292,7 +320,7 @@ document.documentElement.style.display = 'none';
         sectionButton.setAttribute('data-bs-toggle', 'tooltip'); // Set up for Bootstrap tooltip
         sectionButton.setAttribute('data-bs-placement', 'top'); // Tooltip appears on top
         sectionButton.setAttribute('title', `Toggle visibility of the '${sectionNames[sectionType]}' searches.`);
-
+            
         const sectionItemsDisplay = document.createElement('ul');
         sectionItemsDisplay.style.display = 'none'; // Initially hide the list
         sectionItemsDisplay.className = 'col-md-8 mx-auto';
@@ -372,7 +400,7 @@ document.documentElement.style.display = 'none';
             // Add the CSS
             GM_addStyle("@import url('https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css');");
             setupCustomUI();
-
+            
 
             // Initialize Bootstrap tooltips
             var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -404,6 +432,19 @@ document.documentElement.style.display = 'none';
                 }, 10); // Check every 10ms
             });
             searchResultsPromise.then((searchResults) => {
+                // Check if there are missing search results:
+                let initialSearchResultsLength = searchResults.length;
+                if (initialSearchResultsLength < 10 && strategy.findSearchResults) {
+                    try {
+                        let additionalSearchResults = strategy.findSearchResults();
+                        if (additionalSearchResults.length > initialSearchResultsLength) {
+                            console.log('More search results found in the function than starting.');
+                            searchResults = additionalSearchResults;
+                        }
+                    } catch (error) {
+                        console.error('Error occurred while trying to find more search results:', error);
+                    }
+                }
                 // Add a temporary body element
                 let tempBody = document.createElement('body');
 
@@ -423,7 +464,7 @@ document.documentElement.style.display = 'none';
                 }
 
 
-                const resultsDiv = createSearchResultsDisplay(searchResults, serpType);
+                const resultsDiv = createSearchResultsDisplay(searchResults, serpType, originalBody);
                 if (resultsDiv) {
                     tempBody.appendChild(resultsDiv);
                 }
@@ -437,8 +478,8 @@ document.documentElement.style.display = 'none';
         }
 
     }
-
-
+    
+    
     init();
 
 }) ();
